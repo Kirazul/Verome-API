@@ -229,6 +229,7 @@ export const html = `<!DOCTYPE html>
   </div>
   <div id="ytplayer"></div>
   <script>
+    (function(){var oe=console.error;console.error=function(){var m=arguments[0]||'';if(typeof m==='string'&&(m.includes('postMessage')||m.includes('youtube.com')||m.includes('ERR_BLOCKED')))return;oe.apply(console,arguments)}})();
     var tag=document.createElement('script');tag.src='https://www.youtube.com/iframe_api';document.head.appendChild(tag);
     var songs=[],player=null,playerReady=false,isPlaying=false,currentIndex=-1,progressInterval=null;
     document.getElementById('searchInput').onkeypress=e=>{if(e.key==='Enter')doSearch()};

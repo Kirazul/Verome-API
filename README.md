@@ -8,6 +8,10 @@
   A music API built with Deno for searching, streaming, and exploring music data from YouTube Music, YouTube, and Last.fm.
 </p>
 
+<p align="center">
+  <a href="https://verome-api.deno.dev/">Live Demo</a>
+</p>
+
 ---
 
 ## Overview
