@@ -1,0 +1,14 @@
+{
+  "name": "music-api",
+  "version": "1.0.0",
+  "tasks": {
+    "start": "deno run --allow-net --allow-env mod.ts",
+    "dev": "deno run --watch --allow-net --allow-env mod.ts"
+  },
+  "imports": {
+    "std/": "https://deno.land/std@0.208.0/"
+  },
+  "compilerOptions": {
+    "strict": true
+  }
+}
