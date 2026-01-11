@@ -236,27 +236,77 @@ export class YTMusic {
     const browseId = `VL${playlistId.replace(/^VL/, "")}`;
     const data = await this.makeRequest("browse", { browseId });
     
-    // Handle different header types
-    const header = data?.header?.musicDetailHeaderRenderer || 
-                   data?.header?.musicEditablePlaylistDetailHeaderRenderer?.header?.musicDetailHeaderRenderer || {};
+    // Get header from primary contents (new structure)
+    const primaryContents = data?.contents?.twoColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.sectionListRenderer?.contents || [];
+    let title = "";
+    let author = "";
+    let description = "";
+    let thumbnail = "";
     
-    // Handle both single and two column layouts
-    const singleColumn = data?.contents?.singleColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.sectionListRenderer?.contents;
-    const twoColumn = data?.contents?.twoColumnBrowseResultsRenderer?.secondaryContents?.sectionListRenderer?.contents;
-    const contents = singleColumn || twoColumn || [];
+    for (const section of primaryContents) {
+      if (section.musicResponsiveHeaderRenderer) {
+        const h = section.musicResponsiveHeaderRenderer;
+        title = h.title?.runs?.[0]?.text || "";
+        const subtitleRuns = h.straplineTextOne?.runs || [];
+        author = subtitleRuns.find((r: any) => r.navigationEndpoint)?.text || subtitleRuns[0]?.text || "";
+        description = h.description?.musicDescriptionShelfRenderer?.description?.runs?.[0]?.text || "";
+        thumbnail = h.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails?.slice(-1)[0]?.url || "";
+      }
+    }
     
-    // Parse subtitle for author and track count
-    const subtitleRuns = header.subtitle?.runs || [];
-    const author = subtitleRuns.find((r: any) => r.navigationEndpoint)?.text || subtitleRuns[0]?.text;
+    // Fallback to old header location
+    const oldHeader = data?.header?.musicDetailHeaderRenderer || 
+                      data?.header?.musicEditablePlaylistDetailHeaderRenderer?.header?.musicDetailHeaderRenderer;
+    if (oldHeader && !title) {
+      title = oldHeader.title?.runs?.[0]?.text || "";
+      const subtitleRuns = oldHeader.subtitle?.runs || [];
+      author = subtitleRuns.find((r: any) => r.navigationEndpoint)?.text || subtitleRuns[0]?.text || "";
+      thumbnail = oldHeader.thumbnail?.croppedSquareThumbnailRenderer?.thumbnail?.thumbnails?.slice(-1)[0]?.url ||
+                  oldHeader.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails?.slice(-1)[0]?.url || "";
+    }
+    
+    // Get tracks from secondary contents
+    const secondaryContents = data?.contents?.twoColumnBrowseResultsRenderer?.secondaryContents?.sectionListRenderer?.contents || [];
+    const tracks: any[] = [];
+    
+    for (const section of secondaryContents) {
+      // Handle musicPlaylistShelfRenderer (new structure)
+      if (section.musicPlaylistShelfRenderer) {
+        for (const item of section.musicPlaylistShelfRenderer.contents || []) {
+          const parsed = this.parseMusicItem(item.musicResponsiveListItemRenderer);
+          if (parsed) tracks.push(parsed);
+        }
+      }
+      // Handle musicShelfRenderer (old structure)
+      if (section.musicShelfRenderer) {
+        for (const item of section.musicShelfRenderer.contents || []) {
+          const parsed = this.parseMusicItem(item.musicResponsiveListItemRenderer);
+          if (parsed) tracks.push(parsed);
+        }
+      }
+    }
+    
+    // Fallback to single column layout
+    if (tracks.length === 0) {
+      const singleColumn = data?.contents?.singleColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.sectionListRenderer?.contents || [];
+      for (const section of singleColumn) {
+        if (section.musicShelfRenderer) {
+          for (const item of section.musicShelfRenderer.contents || []) {
+            const parsed = this.parseMusicItem(item.musicResponsiveListItemRenderer);
+            if (parsed) tracks.push(parsed);
+          }
+        }
+      }
+    }
     
     return {
       playlistId: playlistId.replace(/^VL/, ""),
-      title: header.title?.runs?.[0]?.text,
+      title,
       author,
-      description: header.description?.runs?.[0]?.text,
-      thumbnail: header.thumbnail?.croppedSquareThumbnailRenderer?.thumbnail?.thumbnails?.slice(-1)[0]?.url ||
-                 header.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails?.slice(-1)[0]?.url,
-      tracks: this.parseTracksFromContents(contents),
+      description,
+      thumbnail,
+      trackCount: tracks.length,
+      tracks,
     };
   }
 
@@ -1318,4 +1368,137 @@ export async function getTrackInfo(title: string, artist: string) {
   } catch (err) {
     return { success: false, error: String(err) };
   }
+}
+
+// ============ UNIFIED ENTITY HELPERS ============
+
+/**
+ * Get complete song details with artist and album links
+ */
+export async function getSongComplete(videoId: string, ytmusic: YTMusic) {
+  const song = await ytmusic.getSong(videoId);
+  if (!song?.videoId) return { success: false, error: "Song not found" };
+
+  // Search for the song to get artist/album info
+  const searchResults = await ytmusic.search(`${song.title} ${song.author}`, "songs");
+  const match = searchResults.results?.find((r: any) => r.videoId === videoId);
+
+  return {
+    success: true,
+    song: {
+      videoId: song.videoId,
+      title: song.title,
+      duration: song.lengthSeconds,
+      thumbnail: song.thumbnail,
+    },
+    artist: {
+      name: song.author,
+      browseId: match?.artists?.[0]?.id || null,
+    },
+    album: match?.browseId?.startsWith("MPRE") ? {
+      browseId: match.browseId,
+    } : null,
+  };
+}
+
+/**
+ * Get complete album details with artist link and full track list
+ */
+export async function getAlbumComplete(browseId: string, ytmusic: YTMusic) {
+  const album = await ytmusic.getAlbum(browseId);
+  if (!album?.title) return { success: false, error: "Album not found" };
+
+  // Get artist browseId from search if not available
+  let artistBrowseId = null;
+  if (album.artist) {
+    const artistSearch = await ytmusic.search(album.artist, "artists");
+    artistBrowseId = artistSearch.results?.[0]?.browseId || null;
+  }
+
+  return {
+    success: true,
+    album: {
+      browseId: album.browseId,
+      title: album.title,
+      year: album.year,
+      thumbnail: album.thumbnail,
+      trackCount: album.trackCount,
+    },
+    artist: {
+      name: album.artist,
+      browseId: artistBrowseId,
+    },
+    tracks: album.tracks.map((t: any) => ({
+      videoId: t.videoId,
+      title: t.title,
+      duration: t.duration,
+      trackNumber: album.tracks.indexOf(t) + 1,
+    })),
+  };
+}
+
+/**
+ * Get complete artist details with discography
+ */
+export async function getArtistComplete(browseId: string, ytmusic: YTMusic) {
+  const artist = await ytmusic.getArtist(browseId);
+  if (!artist?.name) return { success: false, error: "Artist not found" };
+
+  return {
+    success: true,
+    artist: {
+      browseId: artist.browseId,
+      name: artist.name,
+      description: artist.description,
+      thumbnail: artist.thumbnail,
+      subscribers: artist.subscribers,
+    },
+    topSongs: artist.topSongs.map((s: any) => ({
+      videoId: s.videoId,
+      title: s.title,
+      thumbnail: s.thumbnails?.[0]?.url,
+    })),
+    albums: artist.albums.map((a: any) => ({
+      browseId: a.browseId,
+      title: a.title,
+      year: a.subtitle?.match(/\d{4}/)?.[0] || null,
+      thumbnail: a.thumbnails?.[0]?.url,
+    })),
+    singles: artist.singles.map((s: any) => ({
+      browseId: s.browseId,
+      title: s.title,
+      year: s.subtitle?.match(/\d{4}/)?.[0] || null,
+      thumbnail: s.thumbnails?.[0]?.url,
+    })),
+  };
+}
+
+/**
+ * Navigate from song to artist to albums (full chain)
+ */
+export async function getFullChain(videoId: string, ytmusic: YTMusic) {
+  // Get song info
+  const songData = await getSongComplete(videoId, ytmusic);
+  if (!songData.success) return songData;
+
+  const result: any = { success: true, song: songData.song, artist: songData.artist };
+
+  // If we have artist browseId, get full artist data
+  if (songData.artist?.browseId) {
+    const artistData = await getArtistComplete(songData.artist.browseId, ytmusic);
+    if (artistData.success) {
+      result.artistDetails = {
+        description: artistData.artist.description,
+        subscribers: artistData.artist.subscribers,
+        thumbnail: artistData.artist.thumbnail,
+      };
+      result.discography = {
+        albums: artistData.albums,
+        singles: artistData.singles,
+      };
+      result.otherSongs = artistData.topSongs.filter((s: any) => s.videoId !== videoId).slice(0, 5);
+    }
+  }
+
+  return result;
 }

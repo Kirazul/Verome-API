@@ -7,7 +7,7 @@
  */
 
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
-import { YTMusic, YouTubeSearch, LastFM, fetchFromPiped, fetchFromInvidious, getLyrics, getTrendingMusic, getRadio, getTopArtists, getTopTracks, getArtistInfo, getTrackInfo } from "./lib.ts";
+import { YTMusic, YouTubeSearch, LastFM, fetchFromPiped, fetchFromInvidious, getLyrics, getTrendingMusic, getRadio, getTopArtists, getTopTracks, getArtistInfo, getTrackInfo, getSongComplete, getAlbumComplete, getArtistComplete, getFullChain } from "./lib.ts";
 import { html as uiHtml } from "./ui.ts";
 
 const PORT = parseInt(Deno.env.get("PORT") || "8000");
@@ -560,6 +560,36 @@ async function handler(req: Request): Promise<Response> {
       }
       const result = await getTrackInfo(title, artist);
       return json(result);
+    }
+
+    // ============ UNIFIED ENTITY ENDPOINTS ============
+
+    // Get complete song with artist/album links
+    params = matchRoute(pathname, "/api/v2/songs/:videoId");
+    if (params) {
+      const data = await getSongComplete(params.videoId, ytmusic);
+      return json(data);
+    }
+
+    // Get complete album with artist link and tracks
+    params = matchRoute(pathname, "/api/v2/albums/:browseId");
+    if (params) {
+      const data = await getAlbumComplete(params.browseId, ytmusic);
+      return json(data);
+    }
+
+    // Get complete artist with discography
+    params = matchRoute(pathname, "/api/v2/artists/:browseId");
+    if (params) {
+      const data = await getArtistComplete(params.browseId, ytmusic);
+      return json(data);
+    }
+
+    // Get full chain: song -> artist -> albums (navigation helper)
+    params = matchRoute(pathname, "/api/v2/chain/:videoId");
+    if (params) {
+      const data = await getFullChain(params.videoId, ytmusic);
+      return json(data);
     }
 
     // 404
