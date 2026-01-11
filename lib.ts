@@ -28,9 +28,12 @@ export class YTMusic {
     // Normalize the query to handle Arabic and other Unicode characters properly
     const normalizedQuery = query.normalize("NFC");
     
+    const filterParams = this.getFilterParams(filter);
     const params: any = continuationToken
       ? { continuation: continuationToken }
-      : { query: normalizedQuery, params: this.getFilterParams(filter) };
+      : filterParams 
+        ? { query: normalizedQuery, params: filterParams }
+        : { query: normalizedQuery };
 
     const data = await this.makeRequest("search", params);
     return this.parseSearchResults(data);
@@ -243,15 +246,18 @@ export class YTMusic {
     return response.json();
   }
 
-  private getFilterParams(filter?: string): string {
+  private getFilterParams(filter?: string): string | undefined {
+    // Return undefined for no filter (searches everything)
+    if (!filter) return undefined;
+    
     const filterMap: Record<string, string> = {
-      songs: "Eg-KAQwIARAAGAAgACgAMABqChAEEAUQAxAKEAk%3D",
-      videos: "Eg-KAQwIABABGAAgACgAMABqChAEEAUQAxAKEAk%3D",
-      albums: "Eg-KAQwIABAAGAEgACgAMABqChAEEAUQAxAKEAk%3D",
+      songs: "EgWKAQIIAWoKEAMQBBAJEAoQBQ%3D%3D",
+      videos: "EgWKAQIQAWoKEAMQBBAJEAoQBQ%3D%3D",
+      albums: "EgWKAQIYAWoKEAMQBBAJEAoQBQ%3D%3D",
       artists: "EgWKAQIgAWoKEAMQBBAJEAoQBQ%3D%3D",
-      playlists: "Eg-KAQwIABAAGAAgACgBMABqChAEEAUQAxAKEAk%3D",
+      playlists: "EgWKAQIoAWoKEAMQBBAJEAoQBQ%3D%3D",
     };
-    return filterMap[filter || ""] || filterMap.songs;
+    return filterMap[filter] || undefined;
   }
 
   private parseSearchResults(data: any) {
