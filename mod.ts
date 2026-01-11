@@ -263,32 +263,31 @@ async function handler(req: Request): Promise<Response> {
       const artist = searchParams.get("artist") || "";
       if (!id) return error("Missing id");
 
-      // Get stream URL - try invidious first (better proxy support)
+      // Try Piped first - it has better proxy support
       let audioUrl = null;
       let contentType = "audio/mp4";
-      let instance = "";
       
-      const invidious = await fetchFromInvidious(id);
-      if (invidious.success && invidious.streamingUrls) {
-        const audio = invidious.streamingUrls.find((s: any) => 
-          s.type?.includes("audio/mp4") && s.audioQuality === "AUDIO_QUALITY_MEDIUM"
-        ) || invidious.streamingUrls.find((s: any) => s.type?.includes("audio"));
-        if (audio) {
+      const piped = await fetchFromPiped(id);
+      if (piped.success && piped.streamingUrls) {
+        // Piped uses mimeType field
+        const audio = piped.streamingUrls.find((s: any) => 
+          s.mimeType?.includes("audio/mp4")
+        ) || piped.streamingUrls.find((s: any) => s.mimeType?.includes("audio"));
+        if (audio && audio.url) {
           audioUrl = audio.url;
-          instance = invidious.instance || "";
-          contentType = audio.type?.split(";")[0] || "audio/mp4";
+          contentType = audio.mimeType?.split(";")[0] || "audio/mp4";
         }
       }
       
       if (!audioUrl) {
-        const piped = await fetchFromPiped(id);
-        if (piped.success && piped.streamingUrls) {
-          const audio = piped.streamingUrls.find((s: any) => 
-            s.type?.includes("audio/mp4") && s.audioQuality === "AUDIO_QUALITY_MEDIUM"
-          ) || piped.streamingUrls.find((s: any) => s.type?.includes("audio"));
-          if (audio) {
+        const invidious = await fetchFromInvidious(id);
+        if (invidious.success && invidious.streamingUrls) {
+          // Invidious uses type field
+          const audio = invidious.streamingUrls.find((s: any) => 
+            s.type?.includes("audio/mp4")
+          ) || invidious.streamingUrls.find((s: any) => s.type?.includes("audio"));
+          if (audio && audio.url) {
             audioUrl = audio.url;
-            instance = piped.instance || "";
             contentType = audio.type?.split(";")[0] || "audio/mp4";
           }
         }
@@ -305,7 +304,6 @@ async function handler(req: Request): Promise<Response> {
           headers: {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             "Accept": "*/*",
-            "Referer": instance || "https://www.youtube.com/",
           },
         });
 
