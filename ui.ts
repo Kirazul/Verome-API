@@ -131,6 +131,7 @@ export const html = `<!DOCTYPE html>
         <div class="section-title">Streaming & Lyrics</div>
         <div class="api-list">
           <div class="api-item"><span class="method">GET</span><span class="path">/api/stream?id=</span><span class="desc">Audio stream URLs</span></div>
+          <div class="api-item"><span class="method">GET</span><span class="path">/api/download?id=&title=&artist=</span><span class="desc">Download audio file</span></div>
           <div class="api-item"><span class="method">GET</span><span class="path">/api/proxy?url=</span><span class="desc">Audio proxy (CORS)</span></div>
           <div class="api-item"><span class="method">GET</span><span class="path">/api/lyrics?title=&artist=</span><span class="desc">Synced lyrics (LRC)</span></div>
         </div>

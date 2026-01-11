@@ -256,6 +256,64 @@ async function handler(req: Request): Promise<Response> {
       return proxyAudio(audioUrl, req);
     }
 
+    // Download audio as MP3
+    if (pathname === "/api/download") {
+      const id = searchParams.get("id");
+      const title = searchParams.get("title") || "audio";
+      const artist = searchParams.get("artist") || "";
+      if (!id) return error("Missing id");
+
+      // Get stream URL
+      const piped = await fetchFromPiped(id);
+      let audioUrl = null;
+      let metadata = null;
+      
+      if (piped.success && piped.streamingUrls) {
+        const audio = piped.streamingUrls.find((s: any) => s.mimeType?.includes("audio") && s.quality === "AUDIO_QUALITY_MEDIUM") 
+                   || piped.streamingUrls.find((s: any) => s.mimeType?.includes("audio"));
+        if (audio) audioUrl = audio.url;
+        metadata = piped.metadata;
+      }
+      
+      if (!audioUrl) {
+        const invidious = await fetchFromInvidious(id);
+        if (invidious.success && invidious.streamingUrls) {
+          const audio = invidious.streamingUrls.find((s: any) => s.mimeType?.includes("audio") && s.quality === "AUDIO_QUALITY_MEDIUM")
+                     || invidious.streamingUrls.find((s: any) => s.mimeType?.includes("audio"));
+          if (audio) audioUrl = audio.url;
+          metadata = invidious.metadata;
+        }
+      }
+
+      if (!audioUrl) return json({ success: false, error: "No audio stream found" }, 404);
+
+      // Create filename
+      const filename = `${artist ? artist + " - " : ""}${title}`.replace(/[<>:"/\\|?*]/g, "").trim() + ".m4a";
+
+      try {
+        const response = await fetch(audioUrl, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": "https://www.youtube.com/",
+            "Origin": "https://www.youtube.com",
+          },
+        });
+
+        if (!response.ok) return json({ success: false, error: "Failed to fetch audio" }, 502);
+
+        return new Response(response.body, {
+          headers: {
+            "Content-Type": "audio/mp4",
+            "Content-Disposition": `attachment; filename="${encodeURIComponent(filename)}"`,
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Expose-Headers": "Content-Disposition",
+          },
+        });
+      } catch (err) {
+        return json({ success: false, error: "Download failed: " + String(err) }, 500);
+      }
+    }
+
     // ============ LYRICS & INFO ============
 
     if (pathname === "/api/lyrics") {
