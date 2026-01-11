@@ -7,6 +7,7 @@
  */
 
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
+import { Innertube } from "youtubei.js";
 import { YTMusic, YouTubeSearch, LastFM, fetchFromPiped, fetchFromInvidious, getLyrics, getTrendingMusic, getRadio, getTopArtists, getTopTracks, getArtistInfo, getTrackInfo, getSongComplete, getAlbumComplete, getArtistComplete, getFullChain } from "./lib.ts";
 import { html as uiHtml } from "./ui.ts";
 
@@ -263,46 +264,54 @@ async function handler(req: Request): Promise<Response> {
       const artist = searchParams.get("artist") || "";
       if (!id) return error("Missing id");
 
-      // Try Piped first - it has better proxy support
-      let audioUrl = null;
-      let contentType = "audio/mp4";
-      
-      const piped = await fetchFromPiped(id);
-      if (piped.success && piped.streamingUrls) {
-        // Piped uses mimeType field
-        const audio = piped.streamingUrls.find((s: any) => 
-          s.mimeType?.includes("audio/mp4")
-        ) || piped.streamingUrls.find((s: any) => s.mimeType?.includes("audio"));
-        if (audio && audio.url) {
-          audioUrl = audio.url;
-          contentType = audio.mimeType?.split(";")[0] || "audio/mp4";
-        }
-      }
-      
-      if (!audioUrl) {
-        const invidious = await fetchFromInvidious(id);
-        if (invidious.success && invidious.streamingUrls) {
-          // Invidious uses type field
-          const audio = invidious.streamingUrls.find((s: any) => 
-            s.type?.includes("audio/mp4")
-          ) || invidious.streamingUrls.find((s: any) => s.type?.includes("audio"));
-          if (audio && audio.url) {
-            audioUrl = audio.url;
-            contentType = audio.type?.split(";")[0] || "audio/mp4";
-          }
-        }
-      }
-
-      if (!audioUrl) return json({ success: false, error: "No audio stream found" }, 404);
-
-      const ext = contentType.includes("webm") ? ".webm" : ".m4a";
-      const filename = `${artist ? artist + " - " : ""}${title}`.replace(/[<>:"/\\|?*]/g, "").trim() + ext;
-
-      // Proxy the download through our server
       try {
-        const response = await fetch(audioUrl, {
+        // Use Innertube (YouTube.js) for direct access
+        const yt = await Innertube.create({
+          retrieve_player: false, // Faster, we just need stream URLs
+        });
+        
+        const info = await yt.getBasicInfo(id);
+        
+        // Get audio-only format (m4a)
+        const audioFormats = info.streaming_data?.adaptive_formats?.filter(
+          (f: any) => f.mime_type?.includes("audio/mp4")
+        ) || [];
+        
+        // Sort by bitrate and get best quality
+        audioFormats.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0));
+        const audio = audioFormats[0];
+        
+        if (!audio?.url) {
+          // Fallback to Piped/Invidious
+          const piped = await fetchFromPiped(id);
+          if (piped.success && piped.streamingUrls) {
+            const pipedAudio = piped.streamingUrls.find((s: any) => s.mimeType?.includes("audio/mp4")) 
+              || piped.streamingUrls.find((s: any) => s.mimeType?.includes("audio"));
+            if (pipedAudio?.url) {
+              const response = await fetch(pipedAudio.url);
+              if (response.ok) {
+                const ext = pipedAudio.mimeType?.includes("webm") ? ".webm" : ".m4a";
+                const filename = `${artist ? artist + " - " : ""}${title}`.replace(/[<>:"/\\|?*]/g, "").trim() + ext;
+                return new Response(response.body, {
+                  headers: {
+                    "Content-Type": pipedAudio.mimeType?.split(";")[0] || "audio/mp4",
+                    "Content-Disposition": `attachment; filename="${encodeURIComponent(filename)}"`,
+                    "Access-Control-Allow-Origin": "*",
+                  },
+                });
+              }
+            }
+          }
+          return json({ success: false, error: "No audio stream found" }, 404);
+        }
+
+        const ext = ".m4a";
+        const filename = `${artist ? artist + " - " : ""}${title}`.replace(/[<>:"/\\|?*]/g, "").trim() + ext;
+
+        // Fetch and proxy the audio
+        const response = await fetch(audio.url, {
           headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "User-Agent": "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
             "Accept": "*/*",
           },
         });
@@ -313,7 +322,7 @@ async function handler(req: Request): Promise<Response> {
 
         return new Response(response.body, {
           headers: {
-            "Content-Type": contentType,
+            "Content-Type": "audio/mp4",
             "Content-Disposition": `attachment; filename="${encodeURIComponent(filename)}"`,
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Expose-Headers": "Content-Disposition",
