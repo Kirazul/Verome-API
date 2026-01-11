@@ -7,8 +7,7 @@
     "dev": "deno run --watch --allow-net --allow-env --allow-read mod.ts"
   },
   "imports": {
-    "std/": "https://deno.land/std@0.208.0/",
-    "youtubei.js": "npm:youtubei.js@latest"
+    "std/": "https://deno.land/std@0.208.0/"
   },
   "compilerOptions": {
     "strict": true

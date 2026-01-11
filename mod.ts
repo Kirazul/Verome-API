@@ -7,7 +7,7 @@
  */
 
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
-import { Innertube } from "youtubei.js";
+import { Innertube } from "https://deno.land/x/youtubei@v12.2.0/deno.ts";
 import { YTMusic, YouTubeSearch, LastFM, fetchFromPiped, fetchFromInvidious, getLyrics, getTrendingMusic, getRadio, getTopArtists, getTopTracks, getArtistInfo, getTrackInfo, getSongComplete, getAlbumComplete, getArtistComplete, getFullChain } from "./lib.ts";
 import { html as uiHtml } from "./ui.ts";
 
