@@ -263,32 +263,42 @@ async function handler(req: Request): Promise<Response> {
       const artist = searchParams.get("artist") || "";
       if (!id) return error("Missing id");
 
-      // Get stream URL
-      const piped = await fetchFromPiped(id);
+      // Get stream URL - try piped first, then invidious
       let audioUrl = null;
-      let metadata = null;
+      let contentType = "audio/mp4";
       
+      const piped = await fetchFromPiped(id);
       if (piped.success && piped.streamingUrls) {
-        const audio = piped.streamingUrls.find((s: any) => s.mimeType?.includes("audio") && s.quality === "AUDIO_QUALITY_MEDIUM") 
-                   || piped.streamingUrls.find((s: any) => s.mimeType?.includes("audio"));
-        if (audio) audioUrl = audio.url;
-        metadata = piped.metadata;
+        // Check for mimeType or type field, and quality or audioQuality
+        const audio = piped.streamingUrls.find((s: any) => 
+          (s.mimeType?.includes("audio") || s.type?.includes("audio")) && 
+          (s.quality === "AUDIO_QUALITY_MEDIUM" || s.audioQuality === "AUDIO_QUALITY_MEDIUM")
+        ) || piped.streamingUrls.find((s: any) => s.mimeType?.includes("audio") || s.type?.includes("audio"));
+        if (audio) {
+          audioUrl = audio.url || audio.directUrl;
+          contentType = audio.mimeType || audio.type || "audio/mp4";
+        }
       }
       
       if (!audioUrl) {
         const invidious = await fetchFromInvidious(id);
         if (invidious.success && invidious.streamingUrls) {
-          const audio = invidious.streamingUrls.find((s: any) => s.mimeType?.includes("audio") && s.quality === "AUDIO_QUALITY_MEDIUM")
-                     || invidious.streamingUrls.find((s: any) => s.mimeType?.includes("audio"));
-          if (audio) audioUrl = audio.url;
-          metadata = invidious.metadata;
+          const audio = invidious.streamingUrls.find((s: any) => 
+            (s.mimeType?.includes("audio") || s.type?.includes("audio")) && 
+            (s.quality === "AUDIO_QUALITY_MEDIUM" || s.audioQuality === "AUDIO_QUALITY_MEDIUM")
+          ) || invidious.streamingUrls.find((s: any) => s.mimeType?.includes("audio") || s.type?.includes("audio"));
+          if (audio) {
+            audioUrl = audio.url || audio.directUrl;
+            contentType = audio.mimeType || audio.type || "audio/mp4";
+          }
         }
       }
 
       if (!audioUrl) return json({ success: false, error: "No audio stream found" }, 404);
 
-      // Create filename
-      const filename = `${artist ? artist + " - " : ""}${title}`.replace(/[<>:"/\\|?*]/g, "").trim() + ".m4a";
+      // Create filename - use m4a for mp4 audio, webm for webm
+      const ext = contentType.includes("webm") ? ".webm" : ".m4a";
+      const filename = `${artist ? artist + " - " : ""}${title}`.replace(/[<>:"/\\|?*]/g, "").trim() + ext;
 
       try {
         const response = await fetch(audioUrl, {
