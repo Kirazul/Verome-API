@@ -7,9 +7,77 @@
  */
 
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
-import { Innertube } from "https://deno.land/x/youtubei@v12.2.0/deno.ts";
 import { YTMusic, YouTubeSearch, LastFM, fetchFromPiped, fetchFromInvidious, getLyrics, getTrendingMusic, getRadio, getTopArtists, getTopTracks, getArtistInfo, getTrackInfo, getSongComplete, getAlbumComplete, getArtistComplete, getFullChain } from "./lib.ts";
 import { html as uiHtml } from "./ui.ts";
+
+// Direct YouTube innertube API for downloads
+async function getYouTubeStreamUrl(videoId: string): Promise<{ url: string; mimeType: string } | null> {
+  const clients = [
+    {
+      name: "ANDROID",
+      context: {
+        client: {
+          clientName: "ANDROID",
+          clientVersion: "19.09.37",
+          androidSdkVersion: 30,
+          userAgent: "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
+          hl: "en",
+          gl: "US",
+        },
+      },
+    },
+    {
+      name: "IOS",
+      context: {
+        client: {
+          clientName: "IOS",
+          clientVersion: "19.09.3",
+          deviceModel: "iPhone14,3",
+          userAgent: "com.google.ios.youtube/19.09.3 (iPhone14,3; U; CPU iOS 15_6 like Mac OS X)",
+          hl: "en",
+          gl: "US",
+        },
+      },
+    },
+  ];
+
+  for (const client of clients) {
+    try {
+      const response = await fetch("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "User-Agent": client.context.client.userAgent,
+          "X-YouTube-Client-Name": client.name === "ANDROID" ? "3" : "5",
+          "X-YouTube-Client-Version": client.context.client.clientVersion,
+        },
+        body: JSON.stringify({
+          videoId,
+          context: client.context,
+          contentCheckOk: true,
+          racyCheckOk: true,
+        }),
+      });
+
+      const data = await response.json();
+      
+      if (data.streamingData?.adaptiveFormats) {
+        // Find best audio format (m4a)
+        const audioFormats = data.streamingData.adaptiveFormats.filter(
+          (f: any) => f.mimeType?.includes("audio/mp4")
+        );
+        audioFormats.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0));
+        
+        if (audioFormats[0]?.url) {
+          return { url: audioFormats[0].url, mimeType: audioFormats[0].mimeType };
+        }
+      }
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
 
 const PORT = parseInt(Deno.env.get("PORT") || "8000");
 
@@ -265,69 +333,75 @@ async function handler(req: Request): Promise<Response> {
       if (!id) return error("Missing id");
 
       try {
-        // Use Innertube (YouTube.js) for direct access
-        const yt = await Innertube.create({
-          retrieve_player: false, // Faster, we just need stream URLs
-        });
+        // Try direct YouTube innertube API first
+        const ytStream = await getYouTubeStreamUrl(id);
         
-        const info = await yt.getBasicInfo(id);
-        
-        // Get audio-only format (m4a)
-        const audioFormats = info.streaming_data?.adaptive_formats?.filter(
-          (f: any) => f.mime_type?.includes("audio/mp4")
-        ) || [];
-        
-        // Sort by bitrate and get best quality
-        audioFormats.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0));
-        const audio = audioFormats[0];
-        
-        if (!audio?.url) {
-          // Fallback to Piped/Invidious
-          const piped = await fetchFromPiped(id);
-          if (piped.success && piped.streamingUrls) {
-            const pipedAudio = piped.streamingUrls.find((s: any) => s.mimeType?.includes("audio/mp4")) 
-              || piped.streamingUrls.find((s: any) => s.mimeType?.includes("audio"));
-            if (pipedAudio?.url) {
-              const response = await fetch(pipedAudio.url);
-              if (response.ok) {
-                const ext = pipedAudio.mimeType?.includes("webm") ? ".webm" : ".m4a";
-                const filename = `${artist ? artist + " - " : ""}${title}`.replace(/[<>:"/\\|?*]/g, "").trim() + ext;
-                return new Response(response.body, {
-                  headers: {
-                    "Content-Type": pipedAudio.mimeType?.split(";")[0] || "audio/mp4",
-                    "Content-Disposition": `attachment; filename="${encodeURIComponent(filename)}"`,
-                    "Access-Control-Allow-Origin": "*",
-                  },
-                });
-              }
+        if (ytStream?.url) {
+          const ext = ".m4a";
+          const filename = `${artist ? artist + " - " : ""}${title}`.replace(/[<>:"/\\|?*]/g, "").trim() + ext;
+
+          const response = await fetch(ytStream.url, {
+            headers: {
+              "User-Agent": "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
+              "Accept": "*/*",
+            },
+          });
+
+          if (response.ok) {
+            return new Response(response.body, {
+              headers: {
+                "Content-Type": "audio/mp4",
+                "Content-Disposition": `attachment; filename="${encodeURIComponent(filename)}"`,
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Expose-Headers": "Content-Disposition",
+              },
+            });
+          }
+        }
+
+        // Fallback to Piped
+        const piped = await fetchFromPiped(id);
+        if (piped.success && piped.streamingUrls) {
+          const pipedAudio = piped.streamingUrls.find((s: any) => s.mimeType?.includes("audio/mp4")) 
+            || piped.streamingUrls.find((s: any) => s.mimeType?.includes("audio"));
+          if (pipedAudio?.url) {
+            const response = await fetch(pipedAudio.url);
+            if (response.ok) {
+              const ext = pipedAudio.mimeType?.includes("webm") ? ".webm" : ".m4a";
+              const filename = `${artist ? artist + " - " : ""}${title}`.replace(/[<>:"/\\|?*]/g, "").trim() + ext;
+              return new Response(response.body, {
+                headers: {
+                  "Content-Type": pipedAudio.mimeType?.split(";")[0] || "audio/mp4",
+                  "Content-Disposition": `attachment; filename="${encodeURIComponent(filename)}"`,
+                  "Access-Control-Allow-Origin": "*",
+                },
+              });
             }
           }
-          return json({ success: false, error: "No audio stream found" }, 404);
         }
 
-        const ext = ".m4a";
-        const filename = `${artist ? artist + " - " : ""}${title}`.replace(/[<>:"/\\|?*]/g, "").trim() + ext;
-
-        // Fetch and proxy the audio
-        const response = await fetch(audio.url, {
-          headers: {
-            "User-Agent": "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
-            "Accept": "*/*",
-          },
-        });
-
-        if (!response.ok) {
-          return json({ success: false, error: `Failed to fetch audio: ${response.status}` }, 502);
+        // Fallback to Invidious
+        const invidious = await fetchFromInvidious(id);
+        if (invidious.success && invidious.streamingUrls) {
+          const invAudio = invidious.streamingUrls.find((s: any) => s.type?.includes("audio/mp4")) 
+            || invidious.streamingUrls.find((s: any) => s.type?.includes("audio"));
+          if (invAudio?.url) {
+            const response = await fetch(invAudio.url);
+            if (response.ok) {
+              const ext = invAudio.type?.includes("webm") ? ".webm" : ".m4a";
+              const filename = `${artist ? artist + " - " : ""}${title}`.replace(/[<>:"/\\|?*]/g, "").trim() + ext;
+              return new Response(response.body, {
+                headers: {
+                  "Content-Type": invAudio.type?.split(";")[0] || "audio/mp4",
+                  "Content-Disposition": `attachment; filename="${encodeURIComponent(filename)}"`,
+                  "Access-Control-Allow-Origin": "*",
+                },
+              });
+            }
+          }
         }
 
-        return new Response(response.body, {
-          headers: {
-            "Content-Type": "audio/mp4",
-            "Content-Disposition": `attachment; filename="${encodeURIComponent(filename)}"`,
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Expose-Headers": "Content-Disposition",
-          },
-        });
+        return json({ success: false, error: "No audio stream found" }, 404);
       } catch (err) {
         return json({ success: false, error: "Download failed: " + String(err) }, 500);
       }
