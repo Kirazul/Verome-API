@@ -70,41 +70,57 @@ export class YTMusic {
   async getAlbum(browseId: string) {
     const data = await this.makeRequest("browse", { browseId });
     
-    // Handle different header types
-    const header = data?.header?.musicDetailHeaderRenderer || 
-                   data?.header?.musicImmersiveHeaderRenderer || 
-                   data?.header?.musicVisualHeaderRenderer || {};
-    
     // Handle both single and two column layouts
     const singleColumn = data?.contents?.singleColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.sectionListRenderer?.contents;
-    const twoColumn = data?.contents?.twoColumnBrowseResultsRenderer?.secondaryContents?.sectionListRenderer?.contents;
-    const contents = singleColumn || twoColumn || [];
+    const twoColumnPrimary = data?.contents?.twoColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.sectionListRenderer?.contents;
+    const twoColumnSecondary = data?.contents?.twoColumnBrowseResultsRenderer?.secondaryContents?.sectionListRenderer?.contents;
     
-    // Extract title and artist from header
-    const title = header.title?.runs?.[0]?.text;
-    const subtitleRuns = header.subtitle?.runs || header.straplineTextOne?.runs || [];
-    const artist = subtitleRuns.find((r: any) => r.navigationEndpoint)?.text || subtitleRuns[0]?.text;
-    
-    // Get thumbnail
-    const thumbnail = header.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails?.slice(-1)[0]?.url ||
-                      header.thumbnail?.croppedSquareThumbnailRenderer?.thumbnail?.thumbnails?.slice(-1)[0]?.url;
-    
-    // Parse tracks
-    const tracks = this.parseTracksFromContents(contents);
-    
-    // Get album metadata from two column layout
-    const primaryContents = data?.contents?.twoColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.sectionListRenderer?.contents || [];
+    // Get header from different possible locations
+    let title = "";
+    let artist = "";
+    let thumbnail = "";
     let year = "";
-    let trackCount = tracks.length;
     
+    // Check old header location
+    const oldHeader = data?.header?.musicDetailHeaderRenderer || 
+                      data?.header?.musicImmersiveHeaderRenderer || 
+                      data?.header?.musicVisualHeaderRenderer;
+    
+    if (oldHeader) {
+      title = oldHeader.title?.runs?.[0]?.text;
+      const subtitleRuns = oldHeader.subtitle?.runs || oldHeader.straplineTextOne?.runs || [];
+      artist = subtitleRuns.find((r: any) => r.navigationEndpoint)?.text || subtitleRuns[0]?.text;
+      thumbnail = oldHeader.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails?.slice(-1)[0]?.url ||
+                  oldHeader.thumbnail?.croppedSquareThumbnailRenderer?.thumbnail?.thumbnails?.slice(-1)[0]?.url;
+    }
+    
+    // Check new header location (musicResponsiveHeaderRenderer in contents)
+    const primaryContents = twoColumnPrimary || singleColumn || [];
     for (const section of primaryContents) {
-      const descShelf = section.musicDescriptionShelfRenderer;
-      if (descShelf) {
-        const subHeader = descShelf.subheader?.runs?.[0]?.text || "";
+      if (section.musicResponsiveHeaderRenderer) {
+        const h = section.musicResponsiveHeaderRenderer;
+        title = h.title?.runs?.[0]?.text || title;
+        const subtitleRuns = h.straplineTextOne?.runs || h.subtitle?.runs || [];
+        artist = subtitleRuns.find((r: any) => r.navigationEndpoint)?.text || subtitleRuns[0]?.text || artist;
+        thumbnail = h.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails?.slice(-1)[0]?.url || thumbnail;
+        
+        // Get year from subtitle
+        const secondSubtitle = h.subtitle?.runs || [];
+        for (const run of secondSubtitle) {
+          const yearMatch = run.text?.match(/\d{4}/);
+          if (yearMatch) year = yearMatch[0];
+        }
+      }
+      if (section.musicDescriptionShelfRenderer) {
+        const subHeader = section.musicDescriptionShelfRenderer.subheader?.runs?.[0]?.text || "";
         const yearMatch = subHeader.match(/\d{4}/);
-        if (yearMatch) year = yearMatch[0];
+        if (yearMatch && !year) year = yearMatch[0];
       }
     }
+    
+    // Parse tracks from secondary contents
+    const trackContents = twoColumnSecondary || singleColumn || [];
+    const tracks = this.parseTracksFromContents(trackContents);
     
     return {
       browseId,
@@ -112,7 +128,7 @@ export class YTMusic {
       artist,
       thumbnail,
       year,
-      trackCount,
+      trackCount: tracks.length,
       tracks,
     };
   }
