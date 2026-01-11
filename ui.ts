@@ -341,18 +341,21 @@ async function viewArtist(id){
   try{
     var res=await fetch('/api/artists/'+encodeURIComponent(id));
     var data=await res.json();
+    var artist=data.artist||data;
     var tracks=[];
-    // Get songs from artist
+    // Get songs from artist - check both structures
+    if(data.topSongs)tracks.push(...data.topSongs.map(s=>({...s,resultType:'song',videoId:s.videoId,thumbnails:[{url:s.thumbnail}]})));
     if(data.songs?.results)tracks.push(...data.songs.results.map(s=>({...s,resultType:'song'})));
-    if(data.albums?.results){
-      data.albums.results.forEach(a=>{tracks.push({...a,resultType:'album'})});
+    if(data.albums){
+      data.albums.forEach(a=>{tracks.push({...a,resultType:'album',browseId:a.browseId,thumbnails:[{url:a.thumbnail}]})});
     }
-    if(data.singles?.results){
-      data.singles.results.forEach(a=>{tracks.push({...a,resultType:'album'})});
+    if(data.singles){
+      data.singles.forEach(a=>{tracks.push({...a,resultType:'album',browseId:a.browseId,thumbnails:[{url:a.thumbnail}]})});
     }
     songs=tracks;
     // Show artist header
-    var header='<div style="display:flex;align-items:center;gap:20px;padding:20px;margin-bottom:20px;background:var(--surface);border-radius:12px;border:1px solid var(--border)"><img src="'+(data.thumbnails?.[0]?.url||'')+'" style="width:80px;height:80px;border-radius:50%;object-fit:cover"><div><div style="font-size:1.2rem;font-weight:600">'+esc(data.name||'Artist')+'</div><div style="color:var(--muted);font-size:.85rem">'+(data.subscribers||'')+'</div><button class="btn" style="margin-top:10px;padding:8px 16px;font-size:.8rem" onclick="goBack()">Back to Search</button></div></div>';
+    var thumb=artist.thumbnail||artist.thumbnails?.[0]?.url||'';
+    var header='<div style="display:flex;align-items:center;gap:20px;padding:20px;margin-bottom:20px;background:var(--surface);border-radius:12px;border:1px solid var(--border)"><img src="'+thumb+'" style="width:80px;height:80px;border-radius:50%;object-fit:cover;background:var(--surface2)"><div><div style="font-size:1.2rem;font-weight:600">'+esc(artist.name||'Artist')+'</div><div style="color:var(--muted);font-size:.85rem">'+(artist.subscribers||'')+'</div><button class="btn" style="margin-top:10px;padding:8px 16px;font-size:.8rem" onclick="goBack()">Back to Search</button></div></div>';
     document.getElementById('results').innerHTML=header;
     render(null,true);
   }catch(e){document.getElementById('results').innerHTML='<div class="empty">Failed to load artist</div>';}
@@ -365,9 +368,12 @@ async function viewAlbum(id){
   try{
     var res=await fetch('/api/albums/'+encodeURIComponent(id));
     var data=await res.json();
-    songs=(data.tracks||[]).map(t=>({...t,resultType:'song',thumbnails:data.thumbnails}));
+    var album=data.album||data;
+    var albumThumb=album.thumbnail||album.thumbnails?.[0]?.url||'';
+    songs=(data.tracks||[]).map(t=>({...t,resultType:'song',thumbnails:[{url:albumThumb}]}));
     // Show album header
-    var header='<div style="display:flex;align-items:center;gap:20px;padding:20px;margin-bottom:20px;background:var(--surface);border-radius:12px;border:1px solid var(--border)"><img src="'+(data.thumbnails?.[0]?.url||'')+'" style="width:80px;height:80px;border-radius:8px;object-fit:cover"><div><div style="font-size:1.2rem;font-weight:600">'+esc(data.title||'Album')+'</div><div style="color:var(--muted);font-size:.85rem">'+esc(data.artists?.map(a=>a.name).join(', ')||'')+'</div><div style="color:var(--dim);font-size:.75rem">'+(data.year||'')+' - '+(data.trackCount||songs.length)+' tracks</div><button class="btn" style="margin-top:10px;padding:8px 16px;font-size:.8rem" onclick="goBack()">Back to Search</button></div></div>';
+    var artistName=data.artist?.name||album.artists?.map(a=>a.name).join(', ')||'';
+    var header='<div style="display:flex;align-items:center;gap:20px;padding:20px;margin-bottom:20px;background:var(--surface);border-radius:12px;border:1px solid var(--border)"><img src="'+albumThumb+'" style="width:80px;height:80px;border-radius:8px;object-fit:cover;background:var(--surface2)"><div><div style="font-size:1.2rem;font-weight:600">'+esc(album.title||'Album')+'</div><div style="color:var(--muted);font-size:.85rem">'+esc(artistName)+'</div><div style="color:var(--dim);font-size:.75rem">'+(album.year||'')+' - '+(album.trackCount||songs.length)+' tracks</div><button class="btn" style="margin-top:10px;padding:8px 16px;font-size:.8rem" onclick="goBack()">Back to Search</button></div></div>';
     document.getElementById('results').innerHTML=header;
     render(null,true);
   }catch(e){document.getElementById('results').innerHTML='<div class="empty">Failed to load album</div>';}
@@ -382,9 +388,10 @@ async function viewPlaylist(id){
     var playlistId=id.startsWith('VL')?id.substring(2):id;
     var res=await fetch('/api/playlists/'+encodeURIComponent(playlistId));
     var data=await res.json();
+    var playlistThumb=data.thumbnail||data.thumbnails?.[0]?.url||'';
     songs=(data.tracks||[]).map(t=>({...t,resultType:'song'}));
     // Show playlist header
-    var header='<div style="display:flex;align-items:center;gap:20px;padding:20px;margin-bottom:20px;background:var(--surface);border-radius:12px;border:1px solid var(--border)"><img src="'+(data.thumbnails?.[0]?.url||'')+'" style="width:80px;height:80px;border-radius:8px;object-fit:cover"><div><div style="font-size:1.2rem;font-weight:600">'+esc(data.title||'Playlist')+'</div><div style="color:var(--muted);font-size:.85rem">'+esc(data.author?.name||'')+'</div><div style="color:var(--dim);font-size:.75rem">'+(data.trackCount||songs.length)+' tracks</div><button class="btn" style="margin-top:10px;padding:8px 16px;font-size:.8rem" onclick="goBack()">Back to Search</button></div></div>';
+    var header='<div style="display:flex;align-items:center;gap:20px;padding:20px;margin-bottom:20px;background:var(--surface);border-radius:12px;border:1px solid var(--border)"><img src="'+playlistThumb+'" style="width:80px;height:80px;border-radius:8px;object-fit:cover;background:var(--surface2)"><div><div style="font-size:1.2rem;font-weight:600">'+esc(data.title||'Playlist')+'</div><div style="color:var(--muted);font-size:.85rem">'+esc(data.author||'')+'</div><div style="color:var(--dim);font-size:.75rem">'+(data.trackCount||songs.length)+' tracks</div><button class="btn" style="margin-top:10px;padding:8px 16px;font-size:.8rem" onclick="goBack()">Back to Search</button></div></div>';
     document.getElementById('results').innerHTML=header;
     render(null,true);
   }catch(e){document.getElementById('results').innerHTML='<div class="empty">Failed to load playlist</div>';}
