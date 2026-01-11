@@ -360,7 +360,9 @@ async function viewArtist(id,thumbEnc,nameEnc){
     // Use search thumbnail if available, otherwise API thumbnail
     var thumb=searchThumb||artist.thumbnail||artist.thumbnails?.[0]?.url||'';
     var name=searchName||artist.name||'Artist';
-    var header='<div style="display:flex;align-items:center;gap:20px;padding:20px;margin-bottom:20px;background:var(--surface);border-radius:12px;border:1px solid var(--border)"><img src="'+thumb+'" style="width:80px;height:80px;border-radius:50%;object-fit:cover;background:var(--surface2)"><div><div style="font-size:1.2rem;font-weight:600">'+esc(name)+'</div><div style="color:var(--muted);font-size:.85rem">'+(artist.subscribers||'')+'</div><button class="btn" style="margin-top:10px;padding:8px 16px;font-size:.8rem" onclick="goBack()">Back to Search</button></div></div>';
+    var desc=artist.description||'';
+    var descHtml=desc?'<div style="color:var(--dim);font-size:.75rem;margin-top:8px;max-width:500px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">'+esc(desc)+'</div>':'';
+    var header='<div style="display:flex;align-items:flex-start;gap:20px;padding:20px;margin-bottom:20px;background:var(--surface);border-radius:12px;border:1px solid var(--border)"><img src="'+thumb+'" style="width:80px;height:80px;border-radius:50%;object-fit:cover;background:var(--surface2)"><div style="flex:1"><div style="font-size:1.2rem;font-weight:600">'+esc(name)+'</div><div style="color:var(--muted);font-size:.85rem">'+(artist.subscribers||'')+'</div>'+descHtml+'<button class="btn" style="margin-top:10px;padding:8px 16px;font-size:.8rem" onclick="goBack()">Back to Search</button></div></div>';
     document.getElementById('results').innerHTML=header;
     render(null,true);
   }catch(e){document.getElementById('results').innerHTML='<div class="empty">Failed to load artist</div>';}
@@ -400,9 +402,11 @@ async function viewPlaylist(id,thumbEnc,nameEnc){
     var data=await res.json();
     var playlistThumb=searchThumb||data.thumbnail||data.thumbnails?.[0]?.url||'';
     var playlistName=searchName||data.title||'Playlist';
+    var desc=data.description||'';
+    var descHtml=desc?'<div style="color:var(--dim);font-size:.75rem;margin-top:4px;max-width:500px;line-height:1.4">'+esc(desc)+'</div>':'';
     songs=(data.tracks||[]).map(t=>({...t,resultType:'song'}));
     // Show playlist header
-    var header='<div style="display:flex;align-items:center;gap:20px;padding:20px;margin-bottom:20px;background:var(--surface);border-radius:12px;border:1px solid var(--border)"><img src="'+playlistThumb+'" style="width:80px;height:80px;border-radius:8px;object-fit:cover;background:var(--surface2)"><div><div style="font-size:1.2rem;font-weight:600">'+esc(playlistName)+'</div><div style="color:var(--muted);font-size:.85rem">'+esc(data.author||'')+'</div><div style="color:var(--dim);font-size:.75rem">'+(data.trackCount||songs.length)+' tracks</div><button class="btn" style="margin-top:10px;padding:8px 16px;font-size:.8rem" onclick="goBack()">Back to Search</button></div></div>';
+    var header='<div style="display:flex;align-items:flex-start;gap:20px;padding:20px;margin-bottom:20px;background:var(--surface);border-radius:12px;border:1px solid var(--border)"><img src="'+playlistThumb+'" style="width:80px;height:80px;border-radius:8px;object-fit:cover;background:var(--surface2)"><div style="flex:1"><div style="font-size:1.2rem;font-weight:600">'+esc(playlistName)+'</div><div style="color:var(--muted);font-size:.85rem">'+esc(data.author||'')+'</div><div style="color:var(--dim);font-size:.75rem">'+(data.trackCount||songs.length)+' tracks</div>'+descHtml+'<button class="btn" style="margin-top:10px;padding:8px 16px;font-size:.8rem" onclick="goBack()">Back to Search</button></div></div>';
     document.getElementById('results').innerHTML=header;
     render(null,true);
   }catch(e){document.getElementById('results').innerHTML='<div class="empty">Failed to load playlist</div>';}
