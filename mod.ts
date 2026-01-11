@@ -53,6 +53,76 @@ function matchRoute(pathname: string, pattern: string): Record<string, string> |
   return params;
 }
 
+// Country code to language mapping
+const countryLanguageMap: Record<string, string> = {
+  TN: "ar", DZ: "ar", MA: "ar", EG: "ar", SA: "ar", AE: "ar", KW: "ar", QA: "ar", BH: "ar", OM: "ar", JO: "ar", LB: "ar", IQ: "ar", LY: "ar", SD: "ar", YE: "ar", SY: "ar", PS: "ar",
+  FR: "fr", BE: "fr", CH: "fr", CA: "fr", SN: "fr", CI: "fr", ML: "fr", BF: "fr", NE: "fr", TG: "fr", BJ: "fr", CM: "fr", MG: "fr",
+  DE: "de", AT: "de",
+  ES: "es", MX: "es", AR: "es", CO: "es", PE: "es", VE: "es", CL: "es", EC: "es", GT: "es", CU: "es", BO: "es", DO: "es", HN: "es", PY: "es", SV: "es", NI: "es", CR: "es", PA: "es", UY: "es",
+  PT: "pt", BR: "pt", AO: "pt", MZ: "pt",
+  IT: "it",
+  NL: "nl",
+  RU: "ru", BY: "ru", KZ: "ru",
+  TR: "tr",
+  JP: "ja",
+  KR: "ko",
+  CN: "zh", TW: "zh", HK: "zh",
+  IN: "hi",
+  TH: "th",
+  VN: "vi",
+  ID: "id",
+  PL: "pl",
+  UA: "uk",
+  RO: "ro",
+  GR: "el",
+  CZ: "cs",
+  SE: "sv",
+  NO: "no",
+  DK: "da",
+  FI: "fi",
+  HU: "hu",
+  IL: "he",
+  IR: "fa",
+  PK: "ur",
+  BD: "bn",
+  PH: "tl",
+  MY: "ms",
+};
+
+// Detect region from IP using Cloudflare/Deno Deploy headers or fallback to IP lookup
+async function detectRegionFromIP(req: Request): Promise<{ country: string; language: string } | null> {
+  try {
+    // Try Cloudflare/Deno Deploy headers first (fastest)
+    const cfCountry = req.headers.get("cf-ipcountry") || req.headers.get("x-country");
+    if (cfCountry && cfCountry !== "XX") {
+      const language = countryLanguageMap[cfCountry] || "en";
+      return { country: cfCountry, language };
+    }
+    
+    // Get client IP
+    const forwardedFor = req.headers.get("x-forwarded-for");
+    const clientIP = forwardedFor ? forwardedFor.split(",")[0].trim() : null;
+    
+    if (!clientIP || clientIP === "127.0.0.1" || clientIP.startsWith("192.168.") || clientIP.startsWith("10.")) {
+      return null;
+    }
+    
+    // Fallback to IP geolocation API (ip-api.com is free, no key needed)
+    const geoResponse = await fetch(`http://ip-api.com/json/${clientIP}?fields=countryCode`);
+    if (geoResponse.ok) {
+      const geoData = await geoResponse.json();
+      if (geoData.countryCode) {
+        const language = countryLanguageMap[geoData.countryCode] || "en";
+        return { country: geoData.countryCode, language };
+      }
+    }
+    
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 // Main request handler
 async function handler(req: Request): Promise<Response> {
   const url = new URL(req.url);
@@ -100,8 +170,19 @@ async function handler(req: Request): Promise<Response> {
       const filter = searchParams.get("filter") || undefined;
       const continuationToken = searchParams.get("continuationToken") || undefined;
       const ignoreSpelling = searchParams.get("ignore_spelling") === "true";
-      const region = searchParams.get("region") || searchParams.get("gl") || undefined;
-      const language = searchParams.get("language") || searchParams.get("hl") || undefined;
+      
+      // Get region from param or detect from IP
+      let region = searchParams.get("region") || searchParams.get("gl") || undefined;
+      let language = searchParams.get("language") || searchParams.get("hl") || undefined;
+      
+      // Auto-detect region from IP if not provided
+      if (!region) {
+        const detectedRegion = await detectRegionFromIP(req);
+        if (detectedRegion) {
+          region = detectedRegion.country;
+          if (!language) language = detectedRegion.language;
+        }
+      }
 
       if (!query && !continuationToken) {
         return error("Missing required query parameter 'q' or 'continuationToken'");
