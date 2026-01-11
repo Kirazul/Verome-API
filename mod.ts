@@ -261,32 +261,34 @@ async function handler(req: Request): Promise<Response> {
       const id = searchParams.get("id");
       const title = searchParams.get("title") || "audio";
       const artist = searchParams.get("artist") || "";
-      const redirect = searchParams.get("redirect") !== "0";
       if (!id) return error("Missing id");
 
-      // Get stream URL - try piped first, then invidious
+      // Get stream URL - try invidious first (better proxy support)
       let audioUrl = null;
       let contentType = "audio/mp4";
+      let instance = "";
       
-      const piped = await fetchFromPiped(id);
-      if (piped.success && piped.streamingUrls) {
-        const audio = piped.streamingUrls.find((s: any) => 
+      const invidious = await fetchFromInvidious(id);
+      if (invidious.success && invidious.streamingUrls) {
+        const audio = invidious.streamingUrls.find((s: any) => 
           s.type?.includes("audio/mp4") && s.audioQuality === "AUDIO_QUALITY_MEDIUM"
-        ) || piped.streamingUrls.find((s: any) => s.type?.includes("audio"));
+        ) || invidious.streamingUrls.find((s: any) => s.type?.includes("audio"));
         if (audio) {
           audioUrl = audio.url;
+          instance = invidious.instance || "";
           contentType = audio.type?.split(";")[0] || "audio/mp4";
         }
       }
       
       if (!audioUrl) {
-        const invidious = await fetchFromInvidious(id);
-        if (invidious.success && invidious.streamingUrls) {
-          const audio = invidious.streamingUrls.find((s: any) => 
+        const piped = await fetchFromPiped(id);
+        if (piped.success && piped.streamingUrls) {
+          const audio = piped.streamingUrls.find((s: any) => 
             s.type?.includes("audio/mp4") && s.audioQuality === "AUDIO_QUALITY_MEDIUM"
-          ) || invidious.streamingUrls.find((s: any) => s.type?.includes("audio"));
+          ) || piped.streamingUrls.find((s: any) => s.type?.includes("audio"));
           if (audio) {
             audioUrl = audio.url;
+            instance = piped.instance || "";
             contentType = audio.type?.split(";")[0] || "audio/mp4";
           }
         }
@@ -297,19 +299,31 @@ async function handler(req: Request): Promise<Response> {
       const ext = contentType.includes("webm") ? ".webm" : ".m4a";
       const filename = `${artist ? artist + " - " : ""}${title}`.replace(/[<>:"/\\|?*]/g, "").trim() + ext;
 
-      // Redirect to audio URL - browser will handle download
-      if (redirect) {
-        return new Response(null, {
-          status: 302,
+      // Proxy the download through our server
+      try {
+        const response = await fetch(audioUrl, {
           headers: {
-            "Location": audioUrl,
-            ...corsHeaders,
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "*/*",
+            "Referer": instance || "https://www.youtube.com/",
           },
         });
-      }
 
-      // Return URL for client to handle
-      return json({ success: true, url: audioUrl, filename, contentType });
+        if (!response.ok) {
+          return json({ success: false, error: `Failed to fetch audio: ${response.status}` }, 502);
+        }
+
+        return new Response(response.body, {
+          headers: {
+            "Content-Type": contentType,
+            "Content-Disposition": `attachment; filename="${encodeURIComponent(filename)}"`,
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Expose-Headers": "Content-Disposition",
+          },
+        });
+      } catch (err) {
+        return json({ success: false, error: "Download failed: " + String(err) }, 500);
+      }
     }
 
     // ============ LYRICS & INFO ============

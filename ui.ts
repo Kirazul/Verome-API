@@ -327,25 +327,12 @@ function render(f,append){
   else el.innerHTML=html;
 }
 
-async function download(i){
+function download(i){
   var s=songs[i];if(!s||!s.videoId)return;
-  var btn=document.querySelectorAll('.dl-btn')[i];
-  if(btn){btn.textContent='...';btn.disabled=true;}
-  try{
-    var res=await fetch('/api/download?id='+s.videoId+'&redirect=0');
-    var data=await res.json();
-    if(!data.success||!data.url){alert('Download failed: '+(data.error||'No URL'));return;}
-    // Create download link
-    var a=document.createElement('a');
-    a.href=data.url;
-    a.download=data.filename||'audio.m4a';
-    a.target='_blank';
-    a.rel='noopener';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  }catch(e){alert('Download error');}
-  finally{if(btn){btn.textContent='↓';btn.disabled=false;}}
+  var title=encodeURIComponent(s.title||'audio');
+  var artist=encodeURIComponent(s.artists?.map(a=>a.name).join(', ')||'');
+  // Open download in new tab - server will proxy the audio
+  window.open('/api/download?id='+s.videoId+'&title='+title+'&artist='+artist,'_blank');
 }
 
 function play(i){
