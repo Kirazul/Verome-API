@@ -35,7 +35,7 @@ async function getDynamicInstances() {
   } catch {
     return {
       piped: PIPED_INSTANCES,
-      invidious: ["https://yt.omada.cafe", "https://y.com.sb", "https://inv.nadeko.net"],
+      invidious: ["https://y.com.sb", "https://inv.nadeko.net"],
     };
   }
 }
